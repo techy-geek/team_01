@@ -1,19 +1,21 @@
-# Node modules
+# dependencies
+/node_modules
 node_modules/
+node_modules
 
-# Logs
-logs
-*.log
+# testing
+/coverage
+
+# production
+/build
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
 npm-debug.log*
-
-# Runtime data
-pids
-*.pid
-*.seed
-
-# Environment
-.env
-
-# Editor
-.vscode/
-.idea/
+yarn-debug.log*
+yarn-error.log*
