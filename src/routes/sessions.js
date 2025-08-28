@@ -21,9 +21,9 @@ router.get("/:code/current", sessionController.getCurrentQuestion);
 router.post("/:code/next", sessionController.nextQuestion);
 
 //Submit the answer
-router.post("/submit-answer", sessionController.submitAnswer);
+router.post("/:code/submit", sessionController.submitAnswer);
 
-// Leaderboard
-router.get('/:id/leaderboard', sessionController.leaderboard);
+// Final leaderboard 
+router.post("/:code/end", sessionController.endSession);
 
 module.exports = router;

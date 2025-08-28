@@ -8,12 +8,18 @@ const connectDB = require('./config/db');
 const quizzesRoutes = require('./routes/quizzes');
 const sessionsRoutes = require('./routes/sessions');
 const initLiveSockets = require('./sockets/live');
+const authRoutes = require( "./routes/authRoutes.js");
+
+
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || '*'}));
+
+// Authorisation and Login and Signup
+app.use("/api/auth", authRoutes);
 
 // Health
 app.get('/health', (req, res) => res.json({ ok: true }));

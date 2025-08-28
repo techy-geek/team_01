@@ -9,6 +9,6 @@ router.post('/', createQuiz);
 router.get('/:id', getQuiz);
 
 // Adding the question
-router.post('/:id/questions', addQuestion);
+router.post('/:id/questions',addQuestion);
 
 module.exports = router;
