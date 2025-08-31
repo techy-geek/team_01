@@ -1,48 +1,46 @@
+🧑‍🏫 Quiz App (Host + Players)
 
-# Live Quiz Backend (Starter)
+A real-time quiz application built with Node.js, Express, and MongoDB.
+This project allows a host to create and run live quizzes, while players can join using a unique code.
 
-A minimal backend to host live quizzes with a sharable join code. Built with **Express**, **MongoDB/Mongoose**, and **Socket.IO**.
+🚀 Features
 
-## Quick Start
+🔑 Host Authentication (Signup & Login using JWT)
 
-1. **Clone & install**  
-   ```bash
-   npm install
-   ```
+🏁 Host Controls: Start, control, and end quizzes
 
-2. **Configure environment**  
-   Copy `.env.example` to `.env` and set your values.
+🎮 Players: Join quizzes directly via a code (no signup/login needed)
 
-3. **Run the server**  
-   ```bash
-   npm run dev
-   ```
+❓ Question Flow: One question at a time
 
-4. **Test**  
-   - Create a quiz: `POST /api/quizzes`  
-   - Add a question: `POST /api/quizzes/:id/questions`  
-   - Create a live session (get join code): `POST /api/sessions`  
-   - In Socket.IO, connect and emit events per `src/sockets/live.js`.
+📝 Answer Submission: Players submit answers for each question
 
-## Environment
+📊 Live Leaderboard: Updates after every question
 
-```
-PORT=4000
-MONGODB_URI=mongodb://127.0.0.1:27017/quizapp
-CLIENT_ORIGIN=http://localhost:5173
-```
+🏆 Final Leaderboard: Shown after the quiz ends
 
-## Socket Events (Overview)
+🛠️ Tech Stack
 
-- `player:join` -> `{ code, name }`
-- `host:join` -> `{ sessionId, hostKey }`
-- `host:start` -> start first question
-- `host:next` -> move to next question / end
-- `player:answer` -> `{ questionIndex, answerIndex }`
-- Server emits:
-  - `lobby:update`, `question:show`, `leaderboard:update`, `session:ended`
+Backend: Node.js, Express.js
 
-## Notes
+Database: MongoDB (Mongoose ODM)
 
-- For a real deployment, use **Redis** to store ephemeral state and a **JWT** auth layer.
-- This starter keeps it simple: state is persisted to MongoDB, with some in-memory maps for sockets.
+Authentication: JWT (JSON Web Tokens)
+
+Other Tools: bcryptjs, nodemon, dotenv
+
+📂 Project Structure
+quiz-app/
+│── models/
+│   ├── Host.js
+│   ├── Quiz.js
+│   ├── LiveSession.js
+│── routes/
+│   ├── authRoutes.js
+│   ├── quizRoutes.js
+│── middleware/
+│   ├── authMiddleware.js
+│── server.js
+│── package.json
+│── README.md
+
