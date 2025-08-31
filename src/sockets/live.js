@@ -10,30 +10,50 @@ module.exports = function initLiveSockets(io) {
   const nsp = io.of('/live');
 
   nsp.on('connection', (socket) => {
+    console.log('Socket connected:', socket.id);
+
     // Player joins via code
     socket.on('player:join', async ({ code, name }, cb) => {
       try {
-        if (!code || !name) return cb?.({ error: 'code and name required' });
+        if (!code || !name) return cb?.({ error: 'Code and name required' });
+        
         const session = await LiveSession.findOne({ code });
         if (!session) return cb?.({ error: 'Invalid code' });
         if (session.status === 'ended') return cb?.({ error: 'Session ended' });
 
-        // Assign or reuse player
-        const playerId = socket.id; // simple; replace with nanoid for persistence
+        // Use socket.id as playerId for simplicity (could use nanoid for persistence)
+        const playerId = socket.id;
+        
+        // Check if player already exists, if not add them
         if (!session.players.find(p => p.playerId === playerId)) {
-          session.players.push({ playerId, name });
+          session.players.push({ playerId, name, score: 0 });
           await session.save();
         }
 
-        socketsState.set(socket.id, { sessionId: String(session._id), playerId, isHost: false });
+        // Store socket state
+        socketsState.set(socket.id, { 
+          sessionId: String(session._id), 
+          playerId, 
+          isHost: false 
+        });
+        
         socket.join(session.code);
 
-        // update lobby
-        nsp.to(session.code).emit('lobby:update', session.players.map(p => ({ name: p.name, score: p.score })));
+        // Update lobby for all clients
+        nsp.to(session.code).emit('lobby:update', 
+          session.players.map(p => ({ name: p.name, score: p.score }))
+        );
 
-        cb?.({ ok: true, sessionId: String(session._id), playerId, status: session.status });
+        cb?.({ 
+          ok: true, 
+          sessionId: String(session._id), 
+          playerId, 
+          status: session.status,
+          currentQuestionIndex: session.currentQuestionIndex
+        });
+        
       } catch (err) {
-        console.error(err);
+        console.error('Player join error:', err);
         cb?.({ error: 'Join failed' });
       }
     });
@@ -43,14 +63,26 @@ module.exports = function initLiveSockets(io) {
       try {
         const session = await LiveSession.findById(sessionId).populate('quiz');
         if (!session) return cb?.({ error: 'Session not found' });
-        if (session.hostKey !== hostKey) return cb?.({ error: 'Invalid hostKey' });
+        if (session.hostKey !== hostKey) return cb?.({ error: 'Invalid host key' });
 
-        socketsState.set(socket.id, { sessionId: String(session._id), playerId: null, isHost: true });
+        socketsState.set(socket.id, { 
+          sessionId: String(session._id), 
+          playerId: null, 
+          isHost: true 
+        });
+        
         socket.join(session.code);
 
-        cb?.({ ok: true, code: session.code, status: session.status, currentQuestionIndex: session.currentQuestionIndex });
+        cb?.({ 
+          ok: true, 
+          code: session.code, 
+          status: session.status, 
+          currentQuestionIndex: session.currentQuestionIndex,
+          players: session.players.map(p => ({ name: p.name, score: p.score }))
+        });
+        
       } catch (err) {
-        console.error(err);
+        console.error('Host join error:', err);
         cb?.({ error: 'Host join failed' });
       }
     });
@@ -59,26 +91,32 @@ module.exports = function initLiveSockets(io) {
     socket.on('host:start', async (cb) => {
       try {
         const state = socketsState.get(socket.id);
-        if (!state?.isHost) return cb?.({ error: 'Not host' });
+        if (!state?.isHost) return cb?.({ error: 'Not authorized as host' });
+        
         const session = await LiveSession.findById(state.sessionId).populate('quiz');
         if (!session) return cb?.({ error: 'Session not found' });
+        if (session.status !== 'waiting') return cb?.({ error: 'Cannot start - session not waiting' });
 
         session.status = 'live';
         session.currentQuestionIndex = 0;
         await session.save();
 
-        const q = session.quiz.questions[0];
+        const question = session.quiz.questions[0];
+        if (!question) return cb?.({ error: 'No questions in quiz' });
+
+        // Broadcast first question to all clients
         nsp.to(session.code).emit('question:show', {
           index: 0,
-          text: q.text,
-          options: q.options,
-          timeLimitSec: q.timeLimitSec
+          text: question.text,
+          options: question.options,
+          timeLimitSec: question.timeLimitSec || 30
         });
 
         cb?.({ ok: true });
+        
       } catch (err) {
-        console.error(err);
-        cb?.({ error: 'Failed to start' });
+        console.error('Start quiz error:', err);
+        cb?.({ error: 'Failed to start quiz' });
       }
     });
 
@@ -86,95 +124,158 @@ module.exports = function initLiveSockets(io) {
     socket.on('host:next', async (cb) => {
       try {
         const state = socketsState.get(socket.id);
-        if (!state?.isHost) return cb?.({ error: 'Not host' });
+        if (!state?.isHost) return cb?.({ error: 'Not authorized as host' });
+        
         const session = await LiveSession.findById(state.sessionId).populate('quiz');
         if (!session) return cb?.({ error: 'Session not found' });
 
         const prevIndex = session.currentQuestionIndex;
-        // After previous question, compute points for correct answers
+        
+        // CRITICAL FIX: Proper score calculation after each question
         if (prevIndex >= 0) {
           const quiz = session.quiz;
           const correctIndex = quiz.questions[prevIndex].correctIndex;
-          const responses = await Response.find({ session: session._id, questionIndex: prevIndex });
-          const mapPoints = new Map();
-          for (const r of responses) {
-            if (r.answerIndex === correctIndex) {
-              mapPoints.set(r.playerId, Math.max(mapPoints.get(r.playerId) || 0, quiz.questions[prevIndex].points));
-            }
-          }
-          // apply points
-          session.players = session.players.map(p => {
-            const add = mapPoints.get(p.playerId) || 0;
-            return { ...p.toObject(), score: p.score + add };
+          const questionPoints = quiz.questions[prevIndex].points || 10;
+          
+          // Get all responses for this question
+          const responses = await Response.find({ 
+            session: session._id, 
+            questionIndex: prevIndex 
           });
+          
+          // Build points map for correct answers
+          const pointsMap = new Map();
+          responses.forEach(r => {
+            if (r.answerIndex === correctIndex) {
+              pointsMap.set(r.playerId, questionPoints);
+            }
+          });
+          
+          // CRITICAL FIX: Proper Mongoose array update
+          for (let i = 0; i < session.players.length; i++) {
+            const player = session.players[i];
+            const earnedPoints = pointsMap.get(player.playerId) || 0;
+            session.players[i].score += earnedPoints;
+          }
         }
 
         const nextIndex = prevIndex + 1;
+        
+        // Check if quiz is complete
         if (nextIndex >= session.quiz.questions.length) {
           session.status = 'ended';
+          session.currentQuestionIndex = nextIndex; // Keep final index
           await session.save();
-          nsp.to(session.code).emit('leaderboard:update', session.players.sort((a,b)=>b.score-a.score));
-          nsp.to(session.code).emit('session:ended', { totalQuestions: session.quiz.questions.length });
+          
+          // Send final leaderboard
+          const finalScores = session.players
+            .sort((a, b) => b.score - a.score)
+            .map(p => ({ name: p.name, score: p.score }));
+            
+          nsp.to(session.code).emit('quiz:ended', { 
+            leaderboard: finalScores,
+            totalQuestions: session.quiz.questions.length 
+          });
+          
           return cb?.({ ok: true, ended: true });
         }
 
+        // Move to next question
         session.currentQuestionIndex = nextIndex;
         await session.save();
 
-        const q = session.quiz.questions[nextIndex];
-        nsp.to(session.code).emit('leaderboard:update', session.players.sort((a,b)=>b.score-a.score));
+        const nextQuestion = session.quiz.questions[nextIndex];
+        
+        // Send updated leaderboard first
+        const currentScores = session.players
+          .sort((a, b) => b.score - a.score)
+          .map(p => ({ name: p.name, score: p.score }));
+        nsp.to(session.code).emit('leaderboard:update', currentScores);
+        
+        // Then show next question
         nsp.to(session.code).emit('question:show', {
           index: nextIndex,
-          text: q.text,
-          options: q.options,
-          timeLimitSec: q.timeLimitSec
+          text: nextQuestion.text,
+          options: nextQuestion.options,
+          timeLimitSec: nextQuestion.timeLimitSec || 30
         });
 
         cb?.({ ok: true });
+        
       } catch (err) {
-        console.error(err);
-        cb?.({ error: 'Failed to go next' });
+        console.error('Next question error:', err);
+        cb?.({ error: 'Failed to advance question' });
       }
     });
 
-    // Player answers
+    // CRITICAL FIX: Player answers (aligned with your existing logic)
     socket.on('player:answer', async ({ questionIndex, answerIndex }, cb) => {
       try {
         const state = socketsState.get(socket.id);
-        if (!state || state.isHost) return cb?.({ error: 'Not a player' });
+        if (!state || state.isHost) return cb?.({ error: 'Not authorized as player' });
+        
         const session = await LiveSession.findById(state.sessionId).populate('quiz');
         if (!session) return cb?.({ error: 'Session not found' });
-        if (session.status !== 'live') return cb?.({ error: 'Not live' });
+        if (session.status !== 'live') return cb?.({ error: 'Quiz not live' });
+        if (questionIndex !== session.currentQuestionIndex) {
+          return cb?.({ error: 'Question mismatch' });
+        }
 
-        // upsert response (unique per player+question)
-        const correct = session.quiz.questions[questionIndex]?.correctIndex === answerIndex;
-        const doc = await Response.findOneAndUpdate(
-          { session: session._id, playerId: state.playerId, questionIndex },
-          { $set: { answerIndex, correct } },
-          { new: true, upsert: true, setDefaultsOnInsert: true }
+        const question = session.quiz.questions[questionIndex];
+        if (!question) return cb?.({ error: 'Question not found' });
+
+        const isCorrect = answerIndex === question.correctIndex;
+
+        // Save/update response in Response collection (single source of truth)
+        await Response.findOneAndUpdate(
+          { 
+            session: session._id, 
+            playerId: state.playerId, 
+            questionIndex 
+          },
+          { 
+            answerIndex, 
+            correct: isCorrect 
+          },
+          { 
+            new: true, 
+            upsert: true, 
+            setDefaultsOnInsert: true 
+          }
         );
-        cb?.({ ok: true, correct });
+
+        cb?.({ ok: true, correct: isCorrect });
+        
       } catch (err) {
-        console.error(err);
-        cb?.({ error: 'Answer failed' });
+        console.error('Player answer error:', err);
+        cb?.({ error: 'Answer submission failed' });
       }
     });
 
+    // Handle disconnection
     socket.on('disconnect', async () => {
       const state = socketsState.get(socket.id);
       if (!state) return;
+      
       socketsState.delete(socket.id);
-      // OPTIONAL: remove player from lobby on disconnect
+      
+      // Remove player from session if they disconnect (optional behavior)
       try {
-        if (!state.isHost) {
+        if (!state.isHost && state.sessionId) {
           const session = await LiveSession.findById(state.sessionId);
-          if (session) {
+          if (session && session.status === 'waiting') {
+            // Only remove from lobby if session hasn't started
             session.players = session.players.filter(p => p.playerId !== state.playerId);
             await session.save();
-            nsp.to(session.code).emit('lobby:update', session.players.map(p => ({ name: p.name, score: p.score })));
+            
+            nsp.to(session.code).emit('lobby:update', 
+              session.players.map(p => ({ name: p.name, score: p.score }))
+            );
           }
         }
-      } catch (e) {}
+      } catch (err) {
+        console.error('Disconnect cleanup error:', err);
+      }
     });
   });
-}
+};

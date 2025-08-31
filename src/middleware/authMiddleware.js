@@ -1,15 +1,29 @@
-// middleware/authMiddleware.js
-const jwt = require( "jsonwebtoken");
 
-export const protect = (req, res, next) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ message: "No token, authorization denied" });
+const jwt = require('jsonwebtoken');
+
+// CRITICAL SECURITY FIX: Fail fast if JWT secret is missing
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL ERROR: JWT_SECRET environment variable is required');
+  console.error('Please set JWT_SECRET in your .env file');
+  process.exit(1);
+}
+
+const authMiddleware = (req, res, next) => {
+  const token = req.header('Authorization')?.replace('Bearer ', '');
+
+  if (!token) {
+    return res.status(401).json({ message: 'Access denied. No token provided.' });
+  }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secretkey");
-    req.host = decoded; // hostId and email
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.host = decoded;
     next();
-  } catch (err) {
-    res.status(401).json({ message: "Token is not valid" });
+  } catch (error) {
+    console.error('JWT verification failed:', error.message);
+    res.status(400).json({ message: 'Invalid token.' });
   }
 };
+
+module.exports = authMiddleware;

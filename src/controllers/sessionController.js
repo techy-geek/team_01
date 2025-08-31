@@ -3,7 +3,7 @@ const LiveSession = require('../models/LiveSession');
 const Quiz = require('../models/Quiz');
 const { customAlphabet } = require('nanoid');
 const generateJoinCode = require('../utils/generateCode');
-
+const Response = require("../models/Response");
 // CREATE SESSION
 exports.createSession = async (req, res, next) => {
   try {
@@ -53,26 +53,26 @@ exports.joinSession = async (req, res, next) => {
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
     // Check duplicate name
-    const exists = session.participants.some(p => p.name === name);
+    const exists = session.players.some(p => p.name === name);
     if (exists) return res.status(400).json({ error: 'Player name already taken in this session' });
 
-    session.participants.push({
+    session.players.push({
       playerId: customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 12)(),
       name,
       score: 0
     });
-
     await session.save();
 
     res.status(200).json({
       message: `${name} joined successfully`,
       sessionId: session._id,
-      participants: session.participants
+      players: session.players   // return updated list
     });
   } catch (err) {
     next(err);
   }
 };
+
 
 // GET SESSION BY CODE
 exports.getSessionByCode = async (req, res, next) => {
@@ -205,13 +205,11 @@ exports.nextQuestion = async (req, res) => {
   }
 };
 
-//Submit Answer and Live leaderboard
 exports.submitAnswer = async (req, res) => {
   try {
     const { code } = req.params;
-    const { participantName, answer } = req.body;
+    const { playerId, answerIndex } = req.body; // ✅ use answerIndex, not "answer"
 
-    // Find live session
     const session = await LiveSession.findOne({ code }).populate("quiz");
     if (!session) return res.status(404).json({ error: "Session not found" });
 
@@ -222,32 +220,47 @@ exports.submitAnswer = async (req, res) => {
 
     const currentQuestion = session.quiz.questions[currentIndex];
 
-    // Find participant
-    let participant = session.participants.find(
-      (p) => p.name === participantName
-    );
-    if (!participant) {
-      return res.status(404).json({ error: "Participant not found" });
+    // ✅ Find player in session
+    let player = session.players.find((p) => p.playerId === playerId);
+    if (!player) {
+      return res.status(404).json({ error: "Player not found" });
     }
 
-    // Check answer correctness
-    let isCorrect = currentQuestion.correctAnswer === answer;
-    if (isCorrect) {
-      participant.score += 1;
+    // ✅ Check if already answered
+    const existing = await Response.findOne({
+      session: session._id,
+      playerId,
+      questionIndex: currentIndex
+    });
+    if (existing) {
+      return res.status(400).json({ error: "Already answered this question" });
     }
 
+    // ✅ Check correctness
+    let isCorrect = currentQuestion.correctAnswer === answerIndex;
+    if (isCorrect) player.score += 1;
+
+    // ✅ Save response document
+    await Response.create({
+      session: session._id,
+      playerId,
+      questionIndex: currentIndex,
+      answerIndex,   // matches schema
+      correct: isCorrect
+    });
+
+    // ✅ Save updated player score in session
     await session.save();
 
-    // Build leaderboard snapshot
-    const leaderboard = session.participants
+    // Leaderboard snapshot
+    const leaderboard = session.players
       .map((p) => ({ name: p.name, score: p.score }))
       .sort((a, b) => b.score - a.score);
 
-    // Response includes correctness + updated leaderboard
     res.status(200).json({
       message: "Answer submitted successfully",
       correct: isCorrect,
-      yourScore: participant.score,
+      yourScore: player.score,
       leaderboard
     });
 
@@ -257,7 +270,9 @@ exports.submitAnswer = async (req, res) => {
   }
 };
 
+
 // POST /sessions/:code/end
+// Corrected endSession
 exports.endSession = async (req, res) => {
   try {
     const { code } = req.params;
@@ -271,7 +286,7 @@ exports.endSession = async (req, res) => {
     await session.save();
 
     // Build final leaderboard
-    const finalLeaderboard = session.participants
+    const finalLeaderboard = session.players   // ✅ use players not participants
       .map((p) => ({ name: p.name, score: p.score }))
       .sort((a, b) => b.score - a.score);
 
