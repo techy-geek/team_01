@@ -4,6 +4,8 @@ const Quiz = require('../models/Quiz');
 const { customAlphabet } = require('nanoid');
 const generateJoinCode = require('../utils/generateCode');
 const Response = require("../models/Response");
+
+
 // CREATE SESSION
 exports.createSession = async (req, res, next) => {
   try {
@@ -163,6 +165,46 @@ exports.getCurrentQuestion = async (req, res) => {
   } catch (err) {
     console.error("Error fetching current question:", err);
     res.status(500).json({ error: "Error fetching current question" });
+  }
+};
+
+
+// Next Question visible to host only
+exports.nextQuestionToHost = async (req, res) => {
+  try {
+    const { code } = req.params;
+
+    // Get session with quiz populated
+    const session = await LiveSession.findOne({ code }).populate("quiz");
+    if (!session) {
+      return res.status(404).json({ error: "Session not found" });
+    }
+
+    // Edge: session must be live
+    if (session.status !== "live") {
+      return res.status(400).json({ error: "Session is not live" });
+    }
+
+    const currentIndex = session.currentQuestionIndex;
+    const nextIndex = currentIndex + 1;
+
+    // If quiz is over
+    if (nextIndex >= session.quiz.questions.length) {
+      return res.json({ message: "No more questions", nextQuestion: null });
+    }
+
+    const nextQuestion = session.quiz.questions[nextIndex];
+
+    // NOTE: Don’t reveal `correctIndex` here — host sees only Q + options
+    res.json({
+      index: nextIndex,
+      text: nextQuestion.text,
+      options: nextQuestion.options,
+      timeLimitSec: nextQuestion.timeLimitSec || 30,
+    });
+  } catch (err) {
+    console.error("NextQuestionToHost error:", err);
+    res.status(500).json({ error: "Failed to get next question" });
   }
 };
 

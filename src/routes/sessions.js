@@ -17,6 +17,9 @@ router.post('/:id/start', sessionController.startSession);
 // Host will control the question
 router.get("/:code/current", sessionController.getCurrentQuestion);
 
+//Next Question [ONLY VISIBLE TO HOST]
+router.get("/:code/next", sessionController.nextQuestionToHost);
+
 //Next Question
 router.post("/:code/next", sessionController.nextQuestion);
 
