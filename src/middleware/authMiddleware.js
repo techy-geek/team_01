@@ -1,7 +1,7 @@
 
 const jwt = require('jsonwebtoken');
 
-// CRITICAL SECURITY FIX: Fail fast if JWT secret is missing
+// Fail fast if JWT secret is missing
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   console.error('FATAL ERROR: JWT_SECRET environment variable is required');

@@ -250,7 +250,7 @@ exports.nextQuestion = async (req, res) => {
 exports.submitAnswer = async (req, res) => {
   try {
     const { code } = req.params;
-    const { playerId, answerIndex } = req.body; // ✅ use answerIndex, not "answer"
+    const { playerId, answerIndex } = req.body; //  answerIndex, not "answer"
 
     const session = await LiveSession.findOne({ code }).populate("quiz");
     if (!session) return res.status(404).json({ error: "Session not found" });
@@ -262,13 +262,13 @@ exports.submitAnswer = async (req, res) => {
 
     const currentQuestion = session.quiz.questions[currentIndex];
 
-    // ✅ Find player in session
+    //   Find player in session
     let player = session.players.find((p) => p.playerId === playerId);
     if (!player) {
       return res.status(404).json({ error: "Player not found" });
     }
 
-    // ✅ Check if already answered
+    //   Check if already answered
     const existing = await Response.findOne({
       session: session._id,
       playerId,
@@ -278,11 +278,11 @@ exports.submitAnswer = async (req, res) => {
       return res.status(400).json({ error: "Already answered this question" });
     }
 
-    // ✅ Check correctness
+    //   Check correctness
     let isCorrect = currentQuestion.correctAnswer === answerIndex;
     if (isCorrect) player.score += 1;
 
-    // ✅ Save response document
+    //   Save response document
     await Response.create({
       session: session._id,
       playerId,
@@ -291,7 +291,7 @@ exports.submitAnswer = async (req, res) => {
       correct: isCorrect
     });
 
-    // ✅ Save updated player score in session
+    //   Save updated player score in session
     await session.save();
 
     // Leaderboard snapshot
@@ -328,7 +328,7 @@ exports.endSession = async (req, res) => {
     await session.save();
 
     // Build final leaderboard
-    const finalLeaderboard = session.players   // ✅ use players not participants
+    const finalLeaderboard = session.players   //   use players not participants
       .map((p) => ({ name: p.name, score: p.score }))
       .sort((a, b) => b.score - a.score);
 

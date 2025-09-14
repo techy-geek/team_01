@@ -131,7 +131,7 @@ module.exports = function initLiveSockets(io) {
 
         const prevIndex = session.currentQuestionIndex;
         
-        // CRITICAL FIX: Proper score calculation after each question
+        // Proper score calculation after each question
         if (prevIndex >= 0) {
           const quiz = session.quiz;
           const correctIndex = quiz.questions[prevIndex].correctIndex;
@@ -151,7 +151,7 @@ module.exports = function initLiveSockets(io) {
             }
           });
           
-          // CRITICAL FIX: Proper Mongoose array update
+          // Proper Mongoose array update
           for (let i = 0; i < session.players.length; i++) {
             const player = session.players[i];
             const earnedPoints = pointsMap.get(player.playerId) || 0;
@@ -208,7 +208,7 @@ module.exports = function initLiveSockets(io) {
       }
     });
 
-    // CRITICAL FIX: Player answers (aligned with your existing logic)
+    // Player answers 
     socket.on('player:answer', async ({ questionIndex, answerIndex }, cb) => {
       try {
         const state = socketsState.get(socket.id);
@@ -226,7 +226,7 @@ module.exports = function initLiveSockets(io) {
 
         const isCorrect = answerIndex === question.correctIndex;
 
-        // Save/update response in Response collection (single source of truth)
+        // Save/update response in Response collection 
         await Response.findOneAndUpdate(
           { 
             session: session._id, 
@@ -259,7 +259,7 @@ module.exports = function initLiveSockets(io) {
       
       socketsState.delete(socket.id);
       
-      // Remove player from session if they disconnect (optional behavior)
+     
       try {
         if (!state.isHost && state.sessionId) {
           const session = await LiveSession.findById(state.sessionId);

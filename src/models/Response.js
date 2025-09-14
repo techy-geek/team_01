@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-
 const responseSchema = new mongoose.Schema({
   session: { type: mongoose.Schema.Types.ObjectId, ref: 'LiveSession', required: true },
   playerId: { type: String, required: true },
